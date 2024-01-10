@@ -1,4 +1,6 @@
-package cellgui;
+package cellgui.base;
+
+import cellgui.*;
 
 public interface Cell {
     int getX();
@@ -77,9 +79,13 @@ public interface Cell {
 
     void setEndMargin(int margin);
 
-    CColor getColor();
+    int getCenterX();
 
-    void setColor(CColor color);
+    int getCenterY();
+
+    CColor getBackgroundColor();
+
+    void setBackgroundColor(CColor color);
 
     boolean canDrag();
 
@@ -101,15 +107,21 @@ public interface Cell {
 
     void setEnvironment(CEnvironment environment);
 
-    void setOnChangeListener(COnChangeListener listener);
-
     boolean isInside(int x, int y);
 
     boolean isInsideHandler(int x, int y);
 
+    boolean isInitialized();
+
     void onInit();
 
-    void onProcess();
+    void onEvent();
 
-    void onDraw(CDrawer drawer);
+    void onLayout();
+
+    void onBeforeDraw();
+
+    void onEnd();
+
+    void onDraw(CBrush drawer);
 }

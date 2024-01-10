@@ -1,5 +1,7 @@
 package cellgui;
 
+import cellgui.base.Cell;
+
 public interface CWindowsInterface {
     int x();
 

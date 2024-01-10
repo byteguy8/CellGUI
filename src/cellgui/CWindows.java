@@ -1,5 +1,9 @@
 package cellgui;
 
+import cellgui.base.CBrush;
+import cellgui.base.CEnvironment;
+import cellgui.base.Cell;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -12,19 +16,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class CWindows implements CWindowsInterface {
-    private int x;
-    private int y;
-    private volatile int width;
-    private volatile int height;
+    private final CRect winRect;
+    private final CRect canvasRect;
 
     private int action = -1;
-    private Cell last = null;
-    private Cell focused = null;
+    private Cell focusedCell = null;
 
     private volatile boolean running = false;
-    private List<Cell> cells = new ArrayList<>();
+    private final List<Cell> cells = new ArrayList<>();
 
-    private volatile CMouseInf mouseInformation = new CMouseInf();
+    private final CMouseInf mouseInf = new CMouseInf();
 
     private Canvas jCanvas = null;
     private JFrame jWindows = null;
@@ -32,18 +33,47 @@ public final class CWindows implements CWindowsInterface {
     private BufferStrategy bufferStrategy = null;
 
     public CWindows(int x, int y, int width, int height) {
-        this.x = x;
-        this.y = y;
-        this.width = width;
-        this.height = height;
+        this.winRect = new CRect(x, y, width, height);
+        this.canvasRect = new CRect();
+    }
+
+    private synchronized CRect getWinRect() {
+        return new CRect(
+                this.winRect.getX(),
+                this.winRect.getY(),
+                this.winRect.getWidth(),
+                this.winRect.getHeight()
+        );
+    }
+
+    private synchronized CRect getCanvasRect() {
+        return new CRect(
+                this.canvasRect.getX(),
+                this.canvasRect.getY(),
+                this.canvasRect.getWidth(),
+                this.canvasRect.getHeight()
+        );
+    }
+
+    private synchronized void updateWinRect(CUpdater<CRect> updater) {
+        updater.update(this.winRect);
+    }
+
+    private synchronized void updateCanvasRect(CUpdater<CRect> updater) {
+        updater.update(this.canvasRect);
     }
 
     private void initWindows() {
         try {
             EventQueue.invokeAndWait(() -> {
+                final CRect winRect = getWinRect();
+
                 jWindows = new JFrame();
 
+                jWindows.setLocation(winRect.getX(), winRect.getY());
                 jWindows.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+                jWindows.setMinimumSize(new Dimension(winRect.getWidth(), winRect.getHeight()));
+
                 jWindows.addWindowListener(new WindowAdapter() {
                     @Override
                     public void windowClosed(WindowEvent windowEvent) {
@@ -53,28 +83,19 @@ public final class CWindows implements CWindowsInterface {
                 });
 
                 jCanvas = new Canvas();
-                jCanvas.setSize(width, height);
                 jCanvas.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent mouseEvent) {
                         super.mousePressed(mouseEvent);
 
-                        if (mouseEvent.getButton() == MouseEvent.BUTTON1) {
-                            mouseInformation.left = true;
-                        } else if (mouseEvent.getButton() == MouseEvent.BUTTON2) {
-                            mouseInformation.right = true;
-                        }
+                        mouseInf.keyPressed(mouseEvent);
                     }
 
                     @Override
                     public void mouseReleased(MouseEvent mouseEvent) {
                         super.mouseReleased(mouseEvent);
 
-                        if (mouseEvent.getButton() == MouseEvent.BUTTON1) {
-                            mouseInformation.left = false;
-                        } else if (mouseEvent.getButton() == MouseEvent.BUTTON2) {
-                            mouseInformation.right = false;
-                        }
+                        mouseInf.keyReleased(mouseEvent);
                     }
                 });
 
@@ -84,7 +105,6 @@ public final class CWindows implements CWindowsInterface {
                 jCanvas.createBufferStrategy(2);
                 bufferStrategy = jCanvas.getBufferStrategy();
 
-                jWindows.setLocation(x, y);
                 jWindows.setVisible(true);
             });
         } catch (InterruptedException | InvocationTargetException e) {
@@ -92,43 +112,154 @@ public final class CWindows implements CWindowsInterface {
         }
     }
 
-    private void recognition() {
-        if (jWindows.getWidth() != width || jWindows.getHeight() != height) {
-            width = jWindows.getWidth();
-            height = jWindows.getHeight();
-            jCanvas.setMinimumSize(new Dimension(width, height));
+    private void moveCellsDown(int index, List<Cell> cells) {
+        if (cells.size() < 2) {
+            return;
         }
 
-        Point mousePosition = jCanvas.getMousePosition();
+        final Cell upperCell = cells.get(index);
 
-        if (mousePosition != null) {
-            mouseInformation.x = mousePosition.x;
-            mouseInformation.y = mousePosition.y;
+        for (int i = index; i < cells.size(); i++) {
+            if (i + 1 < cells.size()) {
+                Cell c = cells.get(i + 1);
+                cells.set(i, c);
+            }
+        }
+
+        cells.set(cells.size() - 1, upperCell);
+    }
+
+    private int getUpperZCell(List<Cell> cells, CMouseInf mouseInf) {
+        int z = -1;
+
+        for (int i = 0; i < cells.size(); i++) {
+            Cell c = cells.get(i);
+            CVector mPosition = mouseInf.getPosition();
+
+            if (c.isInside(mPosition.getX(), mPosition.getY())) {
+                if (i > z) {
+                    z = i;
+                }
+            }
+        }
+
+        return z;
+    }
+
+    private Cell determinateFocusedCell(CMouseInf mouseInf) {
+        if (mouseInf.isLeftClicked()) {
+            action = -1;
+        }
+
+        final int upperCellIndex = getUpperZCell(cells, mouseInf);
+
+        if (upperCellIndex == -1) {
+            if (mouseInf.isLeftClicked()) {
+                action = -1;
+                focusedCell = null;
+            }
+        } else {
+            if (mouseInf.isLeftPressed()) {
+                if (action != -1) {
+                    return focusedCell;
+                }
+
+                focusedCell = cells.get(upperCellIndex);
+
+                CVector position = mouseInf.getPosition();
+
+                if (focusedCell.isInsideHandler(position.getX(), position.getY())) {
+                    action = 0;
+                } else if (focusedCell.isInside(position.getX(), position.getY())) {
+                    action = 1;
+                }
+
+                if (cells.size() > 1) {
+                    moveCellsDown(upperCellIndex, cells);
+                }
+            }
+        }
+
+        return focusedCell;
+    }
+
+    private void mouseRecognition() {
+        try {
+            EventQueue.invokeAndWait(() -> {
+                Point mPosition = jCanvas.getMousePosition();
+
+                if (mPosition != null) {
+                    mouseInf.setPosition(new CVector(mPosition.x, mPosition.y));
+                }
+            });
+        } catch (InterruptedException | InvocationTargetException e) {
+            System.err.printf("Failed to get mouse position: %s\n", e.getMessage());
         }
     }
 
-    private void processMouseInput(CMouseInf mi) {
-        // Allow dragging
-        final Cell current = last;
+    private void surfaceRecognition() {
+        // Windows and canvas position and size
+        try {
+            final CRect winRect = getWinRect();
+            final CRect canvasRect = getCanvasRect();
 
-        if (mi.left && current != null && current.canDrag()) {
+            EventQueue.invokeAndWait(() -> {
+                final int winX = jWindows.getX();
+                final int winY = jWindows.getY();
+                final int winWidth = jWindows.getWidth();
+                final int winHeight = jWindows.getHeight();
+                final Container container = jWindows.getContentPane();
+
+                if (winX != winRect.getX() || winY != winRect.getY()) {
+                    winRect.setX(winX);
+                    winRect.setY(winY);
+
+                    canvasRect.setX(container.getX());
+                    canvasRect.setY(container.getY());
+                }
+
+                if (winWidth != winRect.getWidth() || winHeight != winRect.getHeight()) {
+                    winRect.setWidth(winWidth);
+                    winRect.setHeight(winHeight);
+                }
+
+                if (container.getWidth() != canvasRect.getWidth() || container.getHeight() != canvasRect.getHeight()) {
+                    canvasRect.setWidth(container.getWidth());
+                    canvasRect.setHeight(container.getHeight());
+                }
+            });
+
+            updateWinRect(updater -> {
+                updater.setX(winRect.getX());
+                updater.setY(winRect.getY());
+                updater.setWidth(winRect.getWidth());
+                updater.setHeight(winRect.getHeight());
+            });
+
+            updateCanvasRect(updater -> {
+                updater.setX(canvasRect.getX());
+                updater.setY(canvasRect.getY());
+                updater.setWidth(canvasRect.getWidth());
+                updater.setHeight(canvasRect.getHeight());
+            });
+        } catch (InterruptedException | InvocationTargetException e) {
+            System.err.printf("Failed to get windows size: %s\n", e.getMessage());
+        }
+    }
+
+    private void mouseInput(CMouseInf mouseInf) {
+        final Cell current = determinateFocusedCell(mouseInf);
+
+        if (current == null) {
+            return;
+        }
+
+        if (mouseInf.isLeftPressed()) {
+            final CVector mMovement = mouseInf.getMovement();
+
             if (action == 0) {
-                int x = current.getX() + mi.xMov;
-                int y = current.getY() + mi.yMov;
-
-                boolean isValidX = x >= 0 && x + current.getOverallWidth() <= jCanvas.getWidth();
-                boolean isValidY = y >= 0 && y + current.getOverallHeight() <= jCanvas.getHeight();
-
-                if (isValidX) {
-                    current.setX(x);
-                }
-
-                if (isValidY) {
-                    current.setY(y);
-                }
-            } else if (action == 1) {
-                int w = current.getWidth() + mi.xMov;
-                int h = current.getHeight() + mi.yMov;
+                int w = current.getWidth() + mMovement.getX();
+                int h = current.getHeight() + mMovement.getY();
 
                 boolean validWidth = w >= current.getMinWidth() && (w <= current.getMaxWidth() || current.getMaxWidth() == -1);
                 boolean validHeight = h >= current.getMinHeight() && (h <= current.getMaxHeight() || current.getMaxHeight() == -1);
@@ -140,152 +271,191 @@ public final class CWindows implements CWindowsInterface {
                 if (validHeight) {
                     current.setHeight(h);
                 }
-            }
+            } else if (action == 1) {
+                int x = current.getX() + mMovement.getX();
+                int y = current.getY() + mMovement.getY();
 
-            return;
-        }
+                boolean isValidX = x >= 0 && x + current.getOverallWidth() <= jCanvas.getWidth();
+                boolean isValidY = y >= 0 && y + current.getOverallHeight() <= jCanvas.getHeight();
 
-        final Cell f = this.focused;
-
-        boolean quitFocus = true;
-        boolean processFocus = true;
-        boolean processAction = true;
-
-        for (int i = cells.size() - 1; i >= 0; i--) {
-            Cell c = cells.get(i);
-
-            if (mi.left) {
-                if (processFocus) {
-                    if (f == null) {
-                        if (c.isInside(mi.x, mi.y)) {
-                            focused = c;
-                            quitFocus = false;
-                            processFocus = false;
-                        }
-                    } else {
-                        if (f.isInside(mi.x, mi.y)) {
-                            focused = f;
-                            quitFocus = false;
-                            processFocus = false;
-                        }
-                    }
-
-                    if (i - 1 < 0 && quitFocus) {
-                        focused = null;
-                    }
+                if (isValidX) {
+                    current.setX(x);
                 }
 
-                if (processAction) {
-                    if (f == null) {
-                        if (c.isInsideHandler(mi.x, mi.y)) {
-                            last = c;
-                            action = 1;
-                            processAction = false;
-
-                            continue;
-                        }
-
-                        if (c.isInside(mi.x, mi.y)) {
-                            last = c;
-                            action = 0;
-                            processAction = false;
-                        }
-                    } else {
-                        if (f.isInsideHandler(mi.x, mi.y)) {
-                            last = f;
-                            action = 1;
-                            processAction = false;
-                        } else if (f.isInside(mi.x, mi.y)) {
-                            last = f;
-                            action = 0;
-                            processAction = false;
-                        }
-                    }
+                if (isValidY) {
+                    current.setY(y);
                 }
             }
-        }
-
-        if (processAction) {
-            action = -1;
-            last = null;
         }
     }
 
-    private void processCells() {
+    private void setCellsEnvironment(List<Cell> cells, CEnvironment environment) {
         for (Cell cell : cells) {
-            CEnvironment environment = new CEnvironment(width, height, mouseInformation);
-
             cell.setEnvironment(environment);
-            cell.onProcess();
         }
     }
 
-    private void drawCells() {
-        Graphics2D graphics2D = (Graphics2D) bufferStrategy.getDrawGraphics();
-        CDrawer d = new CDrawer(graphics2D);
+    private void onCellsInit(List<Cell> cells) {
+        for (Cell cell : cells) {
+            cell.onInit();
+        }
+    }
+
+    private void onCellsEvent(List<Cell> cells) {
+        for (Cell cell : cells) {
+            cell.onEvent();
+        }
+    }
+
+    private void onCellsLayout(List<Cell> cells) {
+        for (Cell cell : cells) {
+            cell.onLayout();
+        }
+    }
+
+    private void onCellsBeforeDraw(List<Cell> cells) {
+        for (Cell cell : cells) {
+            cell.onBeforeDraw();
+        }
+    }
+
+    private void onDrawCells(List<Cell> cells, Graphics2D graphics2D) {
+        final CRect canvasRect = getCanvasRect();
+        final CBrush brush = new CBrush(graphics2D);
 
         graphics2D.setColor(Color.BLACK);
-        graphics2D.clearRect(x, y, width, height);
-        graphics2D.fillRect(x, y, width, height);
+        graphics2D.clearRect(
+                canvasRect.getX(),
+                canvasRect.getY(),
+                canvasRect.getWidth(),
+                canvasRect.getHeight()
+        );
+        graphics2D.fillRect(
+                canvasRect.getX(),
+                canvasRect.getY(),
+                canvasRect.getWidth(),
+                canvasRect.getHeight()
+        );
 
-        final Cell current = focused;
+        final Cell current = focusedCell;
 
         for (Cell cell : cells) {
             if (cell.equals(current)) {
                 continue;
             }
 
-            d.setCanvas(cell);
-            cell.onDraw(d);
+            brush.setCell(cell);
+            cell.onDraw(brush);
         }
 
         if (current != null) {
-            d.setCanvas(current);
-            current.onDraw(d);
+            brush.setCell(current);
+            current.onDraw(brush);
         }
 
         bufferStrategy.show();
-        graphics2D.dispose();
+    }
+
+    private void onEndCells(List<Cell> cells) {
+        for (Cell cell : cells) {
+            cell.onEnd();
+        }
+    }
+
+    private void setGraphicsHints(Graphics2D g2d) {
+        g2d.setRenderingHint(
+                RenderingHints.KEY_COLOR_RENDERING,
+                RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+
+        g2d.setRenderingHint(
+                RenderingHints.KEY_ANTIALIASING,
+                RenderingHints.VALUE_ANTIALIAS_ON);
+
+        g2d.setRenderingHint(
+                RenderingHints.KEY_RENDERING,
+                RenderingHints.VALUE_RENDER_QUALITY);
+    }
+
+    private void executeCellThread() {
+        long start;
+        long end = 0;
+        boolean isInit = true;
+
+        while (running) {
+            final Graphics2D g2d = (Graphics2D) bufferStrategy.getDrawGraphics();
+
+            setGraphicsHints(g2d);
+
+            try {
+                final CEnvironment environment = new CEnvironment(
+                        getWinRect(),
+                        getCanvasRect(),
+                        mouseInf,
+                        g2d);
+
+                start = end;
+
+                mouseRecognition();
+                surfaceRecognition();
+                mouseInput(mouseInf);
+
+                setCellsEnvironment(cells, environment);
+
+                if (isInit) {
+                    onCellsInit(cells);
+                    isInit = false;
+                }
+
+                onCellsEvent(cells);
+                onCellsLayout(cells);
+                onCellsBeforeDraw(cells);
+                onDrawCells(cells, g2d);
+                onEndCells(cells);
+
+                Thread.sleep(17);
+
+                end = System.nanoTime();
+                mouseInf.restart(start, end);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                g2d.dispose();
+            }
+        }
     }
 
     @Override
     public int x() {
-        return x;
+        final CRect canvasRect = getCanvasRect();
+
+        return canvasRect.getX();
     }
 
     @Override
     public int y() {
-        return y;
+        final CRect canvasRect = getCanvasRect();
+
+        return canvasRect.getY();
     }
 
     @Override
     public int width() {
-        return width;
+        final CRect canvasRect = getCanvasRect();
+
+        return canvasRect.getWidth();
     }
 
     @Override
     public int height() {
-        return height;
+        final CRect canvasRect = getCanvasRect();
+
+        return canvasRect.getHeight();
     }
 
     @Override
     public void addCell(Cell cell) {
         cells.add(cell);
-        focused = cells.get(cells.size() - 1);
-    }
-
-    private int put(int x, int y, long[][] b, int current) {
-        if (current + 1 >= b.length) {
-            current = 0;
-        } else {
-            current++;
-        }
-
-        b[current][0] = x;
-        b[current][1] = y;
-        b[current][2] = System.currentTimeMillis();
-
-        return current;
+        focusedCell = cells.get(cells.size() - 1);
     }
 
     @Override
@@ -294,48 +464,7 @@ public final class CWindows implements CWindowsInterface {
 
         running = true;
 
-        guiThread = new Thread(() -> {
-            int current = 0;
-            long[][] buff = new long[2][3];
-
-            CEnvironment environment = new CEnvironment(width, height, mouseInformation);
-
-            for (Cell cell : cells) {
-                cell.setEnvironment(environment);
-                cell.onInit();
-            }
-
-            while (running) {
-                recognition();
-
-                final CMouseInf mi = mouseInformation;
-                current = put(mi.x, mi.y, buff, current);
-
-                int xMov;
-                int yMov;
-
-                if (buff[0][2] > buff[1][2]) {
-                    xMov = (int) (buff[0][0] - buff[1][0]);
-                    yMov = (int) (buff[0][1] - buff[1][1]);
-                } else {
-                    xMov = (int) (buff[1][0] - buff[0][0]);
-                    yMov = (int) (buff[1][1] - buff[0][1]);
-                }
-
-                mouseInformation.xMov = xMov;
-                mouseInformation.yMov = yMov;
-
-                processMouseInput(mi);
-                processCells();
-                drawCells();
-
-                try {
-                    Thread.sleep(17);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        });
+        guiThread = new Thread(this::executeCellThread);
 
         guiThread.start();
     }

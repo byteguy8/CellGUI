@@ -1,4 +1,6 @@
-package cellgui;
+package cellgui.base;
+
+import cellgui.*;
 
 public abstract class AbstractCell implements Cell {
     private int x;
@@ -26,9 +28,9 @@ public abstract class AbstractCell implements Cell {
     private CSizeFlag horizontalSizeFlag;
     private CSizeFlag verticalSizeFlag;
 
-    private Cell parent;
-    private COnChangeListener onChangeListener;
+    private boolean initialized;
 
+    private Cell parent;
     private CEnvironment environment;
 
     public AbstractCell(int width, int height) {
@@ -64,16 +66,10 @@ public abstract class AbstractCell implements Cell {
         this.horizontalSizeFlag = CSizeFlag.NONE;
         this.verticalSizeFlag = CSizeFlag.NONE;
 
+        this.initialized = false;
+
         this.parent = null;
-        this.onChangeListener = null;
-
         this.environment = null;
-    }
-
-    private void notifyOnchange() {
-        if (onChangeListener != null) {
-            onChangeListener.onChange();
-        }
     }
 
     @Override
@@ -123,10 +119,6 @@ public abstract class AbstractCell implements Cell {
 
     @Override
     public void setWidth(int width) {
-        if (width != this.width) {
-            notifyOnchange();
-        }
-
         this.width = width;
     }
 
@@ -147,10 +139,6 @@ public abstract class AbstractCell implements Cell {
 
     @Override
     public void setHeight(int height) {
-        if (height != this.height) {
-            notifyOnchange();
-        }
-
         this.height = height;
     }
 
@@ -275,12 +263,22 @@ public abstract class AbstractCell implements Cell {
     }
 
     @Override
-    public CColor getColor() {
+    public int getCenterX() {
+        return width / 2;
+    }
+
+    @Override
+    public int getCenterY() {
+        return height / 2;
+    }
+
+    @Override
+    public CColor getBackgroundColor() {
         return this.color;
     }
 
     @Override
-    public void setColor(CColor color) {
+    public void setBackgroundColor(CColor color) {
         if (color == null) {
             throw new IllegalArgumentException("color can't be null");
         }
@@ -339,11 +337,6 @@ public abstract class AbstractCell implements Cell {
     }
 
     @Override
-    public void setOnChangeListener(COnChangeListener listener) {
-        this.onChangeListener = listener;
-    }
-
-    @Override
     public boolean isInside(int x, int y) {
         boolean insideX = x >= getX() + getStartMargin() && x <= getX() + getStartMargin() + getContainerWidth();
         boolean insideY = y >= getY() + getTopMargin() && y <= getY() + getTopMargin() + getContainerHeight();
@@ -365,14 +358,27 @@ public abstract class AbstractCell implements Cell {
     }
 
     @Override
+    public boolean isInitialized() {
+        return initialized;
+    }
+
+    @Override
     public void onInit() {
+        if (initialized) {
+            throw new IllegalStateException("Is illegal to call onInit on a initialized cell");
+        }
+
+        initialized = true;
+
         if (environment == null) {
             throw new IllegalStateException("Unexpected environment value");
         }
 
+        final CRect canvasRect = getEnvironment().canvasRect;
+
         if (getHorizontalSizeFlag() == CSizeFlag.EXPAND) {
             if (parent == null) {
-                int width = getEnvironment().width - getStartPadding() - getEndPadding() - getStartMargin() - getEndMargin();
+                int width = canvasRect.getWidth() - getStartPadding() - getEndPadding() - getStartMargin() - getEndMargin();
 
                 setMinWidth(width);
                 setWidth(width);
@@ -384,7 +390,7 @@ public abstract class AbstractCell implements Cell {
             if (parent == null) {
                 int padding = getStartPadding() + getEndPadding();
                 int margin = getStartMargin() + getEndMargin();
-                int height = getEnvironment().height - padding - margin;
+                int height = canvasRect.getHeight() - padding - margin;
 
                 setMinHeight(height);
                 setHeight(height);
@@ -394,14 +400,24 @@ public abstract class AbstractCell implements Cell {
     }
 
     @Override
-    public void onProcess() {
+    public void onEvent() {
+
+    }
+
+    @Override
+    public void onLayout() {
         if (environment == null) {
             throw new IllegalStateException("Unexpected environment value");
         }
     }
 
     @Override
-    public void onDraw(CDrawer drawer) {
+    public void onBeforeDraw() {
+
+    }
+
+    @Override
+    public void onDraw(CBrush drawer) {
         if (environment == null) {
             throw new IllegalStateException("Unexpected environment value");
         }
@@ -409,14 +425,15 @@ public abstract class AbstractCell implements Cell {
         drawer.fillWith(color);
 
         CMouseInf mouseInf = environment.mouseInf;
+        CVector mPosition = mouseInf.getPosition();
 
-        if (isInsideHandler(mouseInf.x, mouseInf.y)) {
-            int hw = 10;
-            int hh = 10;
-            int hx = getContainerWidth() - hw;
-            int hy = getContainerHeight() - hh;
-
-            drawer.drawRect(hx, hy, hw, hh, new CColor(255, 0, 0), true);
+        if (isInsideHandler(mPosition.getX(), mPosition.getY())) {
+            drawer.drawHandler();
         }
+    }
+
+    @Override
+    public void onEnd() {
+
     }
 }
