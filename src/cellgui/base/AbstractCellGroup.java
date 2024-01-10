@@ -1,6 +1,6 @@
 package cellgui.base;
 
-import cellgui.CPosition;
+import cellgui.CVector;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -9,7 +9,7 @@ import java.util.List;
 
 public abstract class AbstractCellGroup extends AbstractCell implements CellGroup {
     private final List<Cell> children = new ArrayList<>();
-    private final Map<Cell, CPosition> localChildrenPositions = new HashMap<>();
+    private final Map<Cell, CVector> localChildrenPositions = new HashMap<>();
 
     public AbstractCellGroup(int x, int y, int width, int height) {
         super(x, y, width, height);
@@ -130,7 +130,7 @@ public abstract class AbstractCellGroup extends AbstractCell implements CellGrou
     }
 
     @Override
-    public void setChildPosition(Cell child, CPosition position) {
+    public void setChildPosition(Cell child, CVector position) {
         if (position == null) {
             throw new IllegalArgumentException("position is null");
         }

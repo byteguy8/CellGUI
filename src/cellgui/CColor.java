@@ -1,6 +1,5 @@
 package cellgui;
 
-import java.awt.*;
 import java.util.Random;
 
 public class CColor {

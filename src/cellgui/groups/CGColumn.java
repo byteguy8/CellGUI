@@ -1,6 +1,5 @@
 package cellgui.groups;
 
-import cellgui.CPosition;
 import cellgui.CSizeFlag;
 import cellgui.CVector;
 import cellgui.base.AbstractCellGroup;
@@ -80,7 +79,7 @@ public class CGColumn extends AbstractCellGroup {
             child.setX(globalChildX);
             child.setY(globalChildY);
 
-            setChildPosition(child, new CPosition(localChildX, localChildY));
+            setChildPosition(child, new CVector(localChildX, localChildY));
 
             globalChildY += child.getOverallHeight();
             localChildY += child.getOverallHeight();
